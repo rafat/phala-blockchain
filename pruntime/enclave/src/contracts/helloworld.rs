@@ -3,20 +3,23 @@ use serde::{Serialize, Deserialize};
 use crate::contracts;
 use crate::types::TxRef;
 use crate::TransactionStatus;
+use crate::contracts::AccountIdWrapper;
+
+use crate::std::collections::BTreeMap;
+use crate::std::string::String;
 
 /// HelloWorld contract states.
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct HelloWorld {
-    counter: u32,
+    mnemonics: BTreeMap<AccountIdWrapper, String>,
 }
 
 /// The commands that the contract accepts from the blockchain. Also called transactions.
 /// Commands are supposed to update the states of the contract.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Command {
-    /// Increments the counter in the contract by some number
-    Increment {
-        value: u32,
+   SetMnemonic {
+        mnemonic: String,
     },
 }
 
@@ -31,16 +34,14 @@ pub enum Error {
 /// Queries are not supposed to write to the contract states.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Request {
-    /// Ask for the value of the counter
-    GetCount,
+    GetMnemonic,
 }
 
 /// Query responses.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Response {
-    /// Returns the value of the counter
-    GetCount {
-        count: u32,
+    GetMnemonic {
+        mnemonic: String,
     },
     /// Something wrong happened
     Error(Error)
@@ -62,9 +63,11 @@ impl contracts::Contract<Command, Request, Response> for HelloWorld {
     fn handle_command(&mut self, _origin: &chain::AccountId, _txref: &TxRef, cmd: Command) -> TransactionStatus {
         match cmd {
             // Handle the `Increment` command with one parameter
-            Command::Increment { value } => {
-                // Simply increment the counter by some value.
-                self.counter += value;
+            Command::SetMnemonic { mnemonic } => {
+                
+                let current_user = AccountIdWrapper(_origin.clone());
+                // Insert the latest mnemonic
+                self.mnemonics.insert(current_user, mnemonic);
                 // Returns TransactionStatus::Ok to indicate a successful transaction
                 TransactionStatus::Ok
             },
@@ -75,10 +78,20 @@ impl contracts::Contract<Command, Request, Response> for HelloWorld {
     fn handle_query(&mut self, _origin: Option<&chain::AccountId>, req: Request) -> Response {
         let inner = || -> Result<Response, Error> {
             match req {
-                // Hanlde the `GetCount` request.
-                Request::GetCount => {
-                    // Respond with the counter in the contract states.
-                    Ok(Response::GetCount { count: self.counter })
+                // Handle the `GetMnemonic` request
+                Request::GetMnemonic => {
+                    // Unwrap the current user account
+                    if let Some(account) = _origin {
+                        let current_user = AccountIdWrapper(account.clone());
+                        if self.mnemonics.contains_key(&current_user) {
+                            
+                            let mnemonic = self.mnemonics.get(&current_user);
+                            return Ok(Response::GetMnemonic { mnemonic: mnemonic.unwrap().clone() })
+                        }
+                    }
+
+                    // Respond NotAuthorized when no account is specified
+                    Err(Error::NotAuthorized)
                 },
             }
         };
